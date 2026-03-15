@@ -8,6 +8,11 @@ from .core import (
     best_meeting_times,
     WorkWindow,
     OverlapResult,
+    Team,
+    Member,
+    OverlapWindow,
+    BestWindowResult,
+    CoverageGap,
 )
 from .utils import parse_timezone, now_in_tz, format_time_range
 
@@ -17,6 +22,11 @@ __all__ = [
     "best_meeting_times",
     "WorkWindow",
     "OverlapResult",
+    "Team",
+    "Member",
+    "OverlapWindow",
+    "BestWindowResult",
+    "CoverageGap",
     "parse_timezone",
     "now_in_tz",
     "format_time_range",

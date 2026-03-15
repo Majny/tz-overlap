@@ -27,6 +27,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+
 [project.scripts]
 tz-overlap = "tz_overlap.cli:main"
 

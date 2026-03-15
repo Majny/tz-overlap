@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, date as date_type, time, timedelta, timezone
+from itertools import combinations
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -223,3 +225,296 @@ def best_meeting_times(
         current += slot_delta
 
     return slots
+
+
+# ---------------------------------------------------------------------------
+# Team / Member API  (Sprint 2 — blog-post-promised surface)
+# ---------------------------------------------------------------------------
+
+def _parse_duration(s: str) -> timedelta:
+    """Parse a human duration string like '30m', '1h', '1h30m' into timedelta."""
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?", s)
+    if not m or (m.group(1) is None and m.group(2) is None):
+        raise ValueError(f"Invalid duration format: '{s}'. Use e.g. '30m', '1h', '1h30m'.")
+    hours = int(m.group(1) or 0)
+    minutes = int(m.group(2) or 0)
+    return timedelta(hours=hours, minutes=minutes)
+
+
+@dataclass(frozen=True)
+class OverlapWindow:
+    """A computed overlap window between a subset of team members.
+
+    Attributes:
+        members: Member objects who overlap (also accessible as names via member_names).
+        start_utc: Start of overlap in UTC.
+        end_utc: End of overlap in UTC.
+        duration: Duration as a timedelta.
+    """
+
+    members: list  # list[Member] — forward ref avoids circular
+    start_utc: datetime
+    end_utc: datetime
+    duration: timedelta
+
+    @property
+    def member_names(self) -> list[str]:
+        """Return names of members in this window."""
+        return [m.name if hasattr(m, 'name') else str(m) for m in self.members]
+
+    @property
+    def duration_minutes(self) -> int:
+        return int(self.duration.total_seconds() // 60)
+
+    def __repr__(self) -> str:
+        mins = self.duration_minutes
+        names = ", ".join(self.member_names)
+        return (
+            f"OverlapWindow(members=[{names}], "
+            f"start_utc={self.start_utc.strftime('%H:%M')}, "
+            f"end_utc={self.end_utc.strftime('%H:%M')}, "
+            f"duration={mins}m)"
+        )
+
+
+@dataclass(frozen=True)
+class BestWindowResult:
+    """Result of Team.best_window().
+
+    Attributes:
+        start_utc: Start of the best window in UTC.
+        end_utc: End of the best window in UTC.
+        members_included: Names of members whose work hours fall inside the window.
+        has_out_of_hours: True if any included member is outside their normal hours.
+        out_of_hours_members: Names of members outside their normal hours.
+    """
+
+    start_utc: datetime
+    end_utc: datetime
+    members_included: list  # list[Member]
+    has_out_of_hours: bool = False
+    out_of_hours_members: list = field(default_factory=list)  # list[Member]
+
+    @property
+    def duration(self) -> timedelta:
+        return self.end_utc - self.start_utc
+
+    @property
+    def duration_minutes(self) -> int:
+        return int(self.duration.total_seconds() // 60)
+
+
+@dataclass(frozen=True)
+class CoverageGap:
+    """A gap in team coverage.
+
+    Attributes:
+        start_utc: Start of the gap in UTC.
+        end_utc: End of the gap in UTC.
+        duration: Duration of the gap.
+    """
+
+    start_utc: datetime
+    end_utc: datetime
+    duration: timedelta
+
+    @property
+    def duration_minutes(self) -> int:
+        return int(self.duration.total_seconds() // 60)
+
+
+@dataclass
+class Member:
+    """A team member with timezone and working hours.
+
+    Attributes:
+        name: Human-readable name.
+        timezone: IANA timezone string.
+        work_start: Start of working hours as HH:MM (default "09:00").
+        work_end: End of working hours as HH:MM (default "18:00").
+    """
+
+    name: str
+    timezone: str
+    work_start: str = "09:00"
+    work_end: str = "18:00"
+
+    def __post_init__(self):
+        # Validate timezone
+        parse_timezone(self.timezone)
+
+    @property
+    def _start_time(self) -> time:
+        h, m = self.work_start.split(":")
+        return time(int(h), int(m))
+
+    @property
+    def _end_time(self) -> time:
+        h, m = self.work_end.split(":")
+        return time(int(h), int(m))
+
+    @property
+    def work_window(self) -> WorkWindow:
+        """Return the underlying WorkWindow for this member."""
+        return WorkWindow(
+            timezone=self.timezone,
+            start=self._start_time,
+            end=self._end_time,
+            label=self.name,
+        )
+
+
+class Team:
+    """A team of members across timezones.
+
+    Args:
+        members: List of Member instances.
+    """
+
+    def __init__(self, members: list[Member]):
+        if not members:
+            raise ValueError("Team must have at least one member.")
+        self.members = members
+
+    def _resolve_date(self, date: str | datetime | date_type | None) -> datetime:
+        """Convert a date argument to a timezone-aware datetime."""
+        if date is None:
+            return datetime.now(timezone.utc)
+        if isinstance(date, str):
+            d = datetime.strptime(date, "%Y-%m-%d")
+            return d.replace(tzinfo=timezone.utc)
+        if isinstance(date, date_type) and not isinstance(date, datetime):
+            return datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
+        if isinstance(date, datetime):
+            if date.tzinfo is None:
+                return date.replace(tzinfo=timezone.utc)
+            return date
+        raise TypeError(f"Unsupported date type: {type(date)}")
+
+    def find_overlaps(
+        self,
+        date: str | datetime | date_type | None = None,
+    ) -> list[OverlapWindow]:
+        """Find all overlap windows among team members for the given date.
+
+        Computes the full-team overlap and all subsets of size >= 2.
+        Returns only subsets that produce a positive overlap, sorted by
+        number of members (descending) then duration (descending).
+        """
+        ref = self._resolve_date(date)
+        member_map: dict[str, Member] = {m.name: m for m in self.members}
+        windows_map: dict[str, WorkWindow] = {
+            m.name: m.work_window for m in self.members
+        }
+        names = list(windows_map.keys())
+        results: list[OverlapWindow] = []
+        seen_intervals: set[tuple[str, ...]] = set()
+
+        # Check subsets from full team down to pairs
+        for size in range(len(names), 1, -1):
+            for combo in combinations(names, size):
+                ws = [windows_map[n] for n in combo]
+                utc_ranges = [w.utc_range(ref) for w in ws]
+                latest_start = max(r[0] for r in utc_ranges)
+                earliest_end = min(r[1] for r in utc_ranges)
+                if latest_start < earliest_end:
+                    key = tuple(sorted(combo))
+                    if key not in seen_intervals:
+                        seen_intervals.add(key)
+                        dur = earliest_end - latest_start
+                        results.append(
+                            OverlapWindow(
+                                members=[member_map[n] for n in combo],
+                                start_utc=latest_start,
+                                end_utc=earliest_end,
+                                duration=dur,
+                            )
+                        )
+
+        # Sort: most members first, then longest duration
+        results.sort(key=lambda ow: (len(ow.members), ow.duration), reverse=True)
+        return results
+
+    def best_window(
+        self,
+        min_members: int = 2,
+        min_duration: str = "30m",
+        date: str | datetime | date_type | None = None,
+    ) -> BestWindowResult | None:
+        """Find the best overlap window for at least *min_members* people.
+
+        "Best" = most members, then longest duration, then earliest start.
+        If *min_duration* is given (e.g. '30m', '1h'), windows shorter than
+        that threshold are excluded.
+
+        Returns None if no window meets the criteria.
+        """
+        min_td = _parse_duration(min_duration)
+        overlaps = self.find_overlaps(date=date)
+
+        for ow in overlaps:
+            if len(ow.members) >= min_members and ow.duration >= min_td:
+                return BestWindowResult(
+                    start_utc=ow.start_utc,
+                    end_utc=ow.end_utc,
+                    members_included=ow.members,
+                    has_out_of_hours=False,
+                    out_of_hours_members=[],
+                )
+
+        return None
+
+    def find_coverage_gaps(
+        self,
+        coverage_target: str = "24/7",
+        date: str | datetime | date_type | None = None,
+    ) -> list[CoverageGap]:
+        """Find gaps where no team member is working.
+
+        Args:
+            coverage_target: Currently only '24/7' is supported (full-day coverage).
+            date: Reference date.
+
+        Returns:
+            List of CoverageGap objects for uncovered periods.
+        """
+        if coverage_target != "24/7":
+            raise ValueError(f"Unsupported coverage target: '{coverage_target}'. Use '24/7'.")
+
+        ref = self._resolve_date(date)
+        day_start = datetime(ref.year, ref.month, ref.day, 0, 0, tzinfo=timezone.utc)
+        day_end = day_start + timedelta(hours=24)
+
+        # Collect all UTC working ranges
+        ranges: list[tuple[datetime, datetime]] = []
+        for m in self.members:
+            s, e = m.work_window.utc_range(ref)
+            # Clamp to day boundaries
+            s = max(s, day_start)
+            e = min(e, day_end)
+            if s < e:
+                ranges.append((s, e))
+
+        if not ranges:
+            return [CoverageGap(start_utc=day_start, end_utc=day_end, duration=timedelta(hours=24))]
+
+        # Merge overlapping ranges
+        ranges.sort()
+        merged: list[tuple[datetime, datetime]] = [ranges[0]]
+        for s, e in ranges[1:]:
+            if s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+
+        # Gaps are the spaces between merged ranges and the day boundaries
+        gaps: list[CoverageGap] = []
+        cursor = day_start
+        for s, e in merged:
+            if cursor < s:
+                gaps.append(CoverageGap(start_utc=cursor, end_utc=s, duration=s - cursor))
+            cursor = e
+        if cursor < day_end:
+            gaps.append(CoverageGap(start_utc=cursor, end_utc=day_end, duration=day_end - cursor))
+
+        return gaps
