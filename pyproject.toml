@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tz-overlap"
+version = "0.1.0"
+description = "Find overlapping working hours across timezones for distributed teams"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "LoopDesk", email = "eng@loopdesk.dev" },
+]
+keywords = ["timezone", "overlap", "distributed", "async", "remote-work", "scheduling"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.scripts]
+tz-overlap = "tz_overlap.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/loopdesk/tz-overlap"
+Repository = "https://github.com/loopdesk/tz-overlap"
+Issues = "https://github.com/loopdesk/tz-overlap/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
