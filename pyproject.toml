@@ -34,9 +34,9 @@ yaml = ["pyyaml>=6.0"]
 tz-overlap = "tz_overlap.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/loopdesk/tz-overlap"
-Repository = "https://github.com/loopdesk/tz-overlap"
-Issues = "https://github.com/loopdesk/tz-overlap/issues"
+Homepage = "https://github.com/Majny/tz-overlap"
+Repository = "https://github.com/Majny/tz-overlap"
+Issues = "https://github.com/Majny/tz-overlap/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
