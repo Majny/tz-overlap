@@ -37,14 +37,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Publish to PyPI (trusted publishing)
-        if: ${{ !secrets.PYPI_API_TOKEN }}
-        uses: pypa/gh-action-pypi-publish@release/v1
-      - name: Publish to PyPI (API token)
-        if: ${{ secrets.PYPI_API_TOKEN }}
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+      - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-testpypi:
     needs: build
@@ -59,14 +52,6 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Publish to TestPyPI (trusted publishing)
-        if: ${{ !secrets.TESTPYPI_API_TOKEN }}
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-      - name: Publish to TestPyPI (API token)
-        if: ${{ secrets.TESTPYPI_API_TOKEN }}
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TESTPYPI_API_TOKEN }}
