@@ -38,5 +38,14 @@ Homepage = "https://github.com/Majny/tz-overlap"
 Repository = "https://github.com/Majny/tz-overlap"
 Issues = "https://github.com/Majny/tz-overlap/issues"
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "tz_overlap/",
+    "tests/",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -37,7 +37,13 @@ jobs:
         with:
           name: dist
           path: dist/
+      # Try OIDC first (trusted publisher), fall back to token auth
       - uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ !secrets.PYPI_TOKEN }}
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ secrets.PYPI_TOKEN }}
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
 
   publish-testpypi:
     needs: build
@@ -52,6 +58,13 @@ jobs:
         with:
           name: dist
           path: dist/
+      # Try OIDC first (trusted publisher), fall back to token auth
       - uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ !secrets.PYPI_TOKEN }}
         with:
           repository-url: https://test.pypi.org/legacy/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ secrets.PYPI_TOKEN }}
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.PYPI_TOKEN }}
